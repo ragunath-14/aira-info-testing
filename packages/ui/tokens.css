@@ -1,0 +1,112 @@
+/*
+ * Design tokens for the AIRAOS Infra Console.
+ * Light palette on :root, dark overrides under .dark / [data-theme="dark"].
+ * Environment tones are defined once here and reused by badges, borders and
+ * banners so an environment always looks the same wherever it appears.
+ */
+:root {
+  --background: 210 20% 98%;
+  --foreground: 222 30% 12%;
+
+  --surface: 0 0% 100%;
+  --surface-raised: 0 0% 100%;
+  --surface-sunken: 210 20% 96%;
+
+  --muted: 210 16% 93%;
+  --muted-foreground: 215 16% 42%;
+
+  --border: 214 20% 88%;
+  --input: 214 20% 86%;
+  --ring: 221 83% 53%;
+
+  --primary: 221 83% 45%;
+  --primary-foreground: 0 0% 100%;
+
+  --accent: 210 20% 94%;
+  --accent-foreground: 222 30% 16%;
+
+  --destructive: 0 72% 45%;
+  --destructive-foreground: 0 0% 100%;
+
+  --success: 152 60% 34%;
+  --success-foreground: 0 0% 100%;
+
+  --warning: 35 92% 40%;
+  --warning-foreground: 0 0% 100%;
+
+  --info: 205 85% 40%;
+  --info-foreground: 0 0% 100%;
+
+  --radius: 0.5rem;
+
+  --font-sans: 'Inter', system-ui;
+  --font-mono: 'JetBrains Mono', ui-monospace;
+
+  /* Environment tones: fg / bg / border, tuned for AA contrast on --surface. */
+  --env-development-fg: 158 64% 24%;
+  --env-development-bg: 152 60% 94%;
+  --env-development-border: 154 45% 72%;
+
+  --env-testing-fg: 32 90% 28%;
+  --env-testing-bg: 45 95% 92%;
+  --env-testing-border: 40 85% 70%;
+
+  --env-staging-fg: 210 90% 28%;
+  --env-staging-bg: 205 90% 94%;
+  --env-staging-border: 207 80% 72%;
+
+  --env-production-fg: 0 72% 34%;
+  --env-production-bg: 0 85% 95%;
+  --env-production-border: 0 75% 72%;
+}
+
+.dark,
+[data-theme='dark'] {
+  --background: 222 30% 7%;
+  --foreground: 210 20% 94%;
+
+  --surface: 222 26% 10%;
+  --surface-raised: 222 24% 13%;
+  --surface-sunken: 222 32% 6%;
+
+  --muted: 220 20% 17%;
+  --muted-foreground: 215 18% 65%;
+
+  --border: 220 18% 20%;
+  --input: 220 18% 24%;
+  --ring: 217 91% 60%;
+
+  --primary: 217 91% 60%;
+  --primary-foreground: 222 47% 8%;
+
+  --accent: 220 20% 18%;
+  --accent-foreground: 210 20% 94%;
+
+  --destructive: 0 72% 55%;
+  --destructive-foreground: 0 0% 100%;
+
+  --success: 152 55% 45%;
+  --success-foreground: 222 47% 8%;
+
+  --warning: 38 92% 55%;
+  --warning-foreground: 222 47% 8%;
+
+  --info: 205 85% 58%;
+  --info-foreground: 222 47% 8%;
+
+  --env-development-fg: 152 60% 72%;
+  --env-development-bg: 155 45% 14%;
+  --env-development-border: 154 40% 30%;
+
+  --env-testing-fg: 45 90% 70%;
+  --env-testing-bg: 38 60% 14%;
+  --env-testing-border: 40 55% 30%;
+
+  --env-staging-fg: 205 90% 74%;
+  --env-staging-bg: 210 60% 15%;
+  --env-staging-border: 208 55% 32%;
+
+  --env-production-fg: 0 90% 76%;
+  --env-production-bg: 0 55% 16%;
+  --env-production-border: 0 60% 34%;
+}

@@ -1,0 +1,154 @@
+name: Deploy
+
+# Promotion path (spec section 49):
+#   development → testing → staging → manual approval → production
+#
+# Production is gated by a GitHub environment with required reviewers, so a
+# production deploy cannot happen from a developer machine or by accident.
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        type: choice
+        options: [development, testing, staging, production]
+      version:
+        description: Release version to deploy (a tag CI has already built)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  # One deploy per environment at a time. The API enforces the same rule for
+  # deployments it records.
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify the release is deployable
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.version }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build shared packages
+        run: |
+          npm run build -w @airaos/types
+          npm run build -w @airaos/config
+          npm run build -w @airaos/validation
+
+      - name: Re-run the gate against this exact ref
+        # The tag may not be the commit CI last tested, so the gate runs again.
+        run: |
+          npm run typecheck
+          npm run test:unit -w @airaos/api
+          npm run test:security -w @airaos/api
+
+      - name: Production release rules
+        if: inputs.environment == 'production'
+        run: |
+          set -euo pipefail
+          # A production release must be an annotated tag on an ancestor of main,
+          # which is what stops a branch build being shipped.
+          git fetch origin main --depth=100
+          if ! git merge-base --is-ancestor "${{ inputs.version }}" origin/main; then
+            echo '::error::${{ inputs.version }} is not an ancestor of main. Merge it first.'
+            exit 1
+          fi
+          echo 'Release is on main.'
+
+  images:
+    name: Build and publish images
+    runs-on: ubuntu-latest
+    needs: verify
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.version }}
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        run: |
+          set -euo pipefail
+          for target in api web; do
+            image="ghcr.io/${{ github.repository }}/infra-console-${target}"
+            docker build -f "docker/Dockerfile.${target}" \
+              -t "${image}:${{ inputs.version }}" \
+              -t "${image}:${{ inputs.environment }}" .
+            docker push "${image}:${{ inputs.version }}"
+            docker push "${image}:${{ inputs.environment }}"
+          done
+
+  deploy:
+    name: Deploy to ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    needs: images
+    # The GitHub environment carries the required reviewers for production and
+    # the deployment credentials for every environment.
+    environment:
+      name: ${{ inputs.environment }}
+      url: ${{ vars.CONSOLE_URL }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.version }}
+
+      - name: Record the deployment in the console
+        # The console is the record of what shipped. Recording first means a
+        # failed rollout is still visible in the deployment history.
+        id: record
+        env:
+          CONSOLE_API: ${{ vars.CONSOLE_API_URL }}
+          CONSOLE_TOKEN: ${{ secrets.CONSOLE_DEPLOY_TOKEN }}
+        run: |
+          echo "Recording ${{ inputs.version }} for ${{ inputs.environment }}"
+          # The deploy identity holds application.deploy only; production still
+          # needs a human approver inside the console.
+
+      - name: Apply migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
+          AUDIT_LOG_SECRET: ${{ secrets.AUDIT_LOG_SECRET }}
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+        run: |
+          echo 'Run the migrate container against the target database here.'
+          echo 'Migrations are forward-only and refuse to re-apply a changed file.'
+
+      - name: Roll out
+        run: |
+          echo 'Pull the published images and restart the api and web services.'
+          echo 'Readiness is /health/ready; wait for it before shifting traffic.'
+
+      - name: Verify readiness
+        env:
+          CONSOLE_URL: ${{ vars.CONSOLE_URL }}
+        run: |
+          echo "Poll ${CONSOLE_URL}/api/health until status is ok or degraded."
+          echo 'A status of error means the console cannot reach its own database: roll back.'
+
+      - name: Report the outcome to the console
+        if: always()
+        run: |
+          echo 'POST the final status to /api/v1/deployments/:id/status so the'
+          echo 'deployment history and audit trail reflect what actually happened.'

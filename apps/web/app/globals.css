@@ -1,0 +1,124 @@
+@import '@airaos/ui/tokens.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    /* Desktop-first console: a comfortable base size for dense tables. */
+    font-size: 15px;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: var(--font-sans);
+    /* Tabular figures keep metric columns from jittering as values change. */
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Visible focus everywhere: the console is meant to be keyboard-drivable. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+
+  ::selection {
+    @apply bg-primary/20;
+  }
+
+  /* Thin scrollbars so the three-panel database layout stays usable. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-border;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@layer components {
+  /*
+   * Environment tone classes. Every environment badge, banner and border uses
+   * these, so production always looks like production wherever it appears
+   * (spec section 6).
+   */
+  .env-development {
+    --tone-fg: var(--env-development-fg);
+    --tone-bg: var(--env-development-bg);
+    --tone-border: var(--env-development-border);
+  }
+
+  .env-testing {
+    --tone-fg: var(--env-testing-fg);
+    --tone-bg: var(--env-testing-bg);
+    --tone-border: var(--env-testing-border);
+  }
+
+  .env-staging {
+    --tone-fg: var(--env-staging-fg);
+    --tone-bg: var(--env-staging-bg);
+    --tone-border: var(--env-staging-border);
+  }
+
+  .env-production {
+    --tone-fg: var(--env-production-fg);
+    --tone-bg: var(--env-production-bg);
+    --tone-border: var(--env-production-border);
+  }
+
+  .tone-surface {
+    background-color: hsl(var(--tone-bg));
+    color: hsl(var(--tone-fg));
+    border-color: hsl(var(--tone-border));
+  }
+
+  .card {
+    @apply rounded-lg border border-border bg-surface shadow-sm;
+  }
+
+  .data-grid {
+    @apply w-full border-collapse text-sm;
+  }
+
+  .data-grid th {
+    @apply sticky top-0 z-10 border-b border-border bg-surface-sunken px-3 py-2 text-left text-2xs font-semibold uppercase tracking-wide text-muted-foreground;
+  }
+
+  .data-grid td {
+    @apply border-b border-border/60 px-3 py-2 align-top;
+  }
+
+  .data-grid tbody tr:hover {
+    @apply bg-accent/40;
+  }
+
+  .mono {
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+  }
+}
+
+/* Respect a user's reduced-motion preference: nothing here is load-bearing. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,93 @@
+# =============================================================================
+# Alertmanager configuration.
+#
+# Routing is by severity first and environment second, so a production critical
+# reaches a human immediately while a development warning does not wake anyone.
+#
+# Receiver URLs and keys come from environment substitution at deploy time —
+# never commit a webhook URL, it is a credential.
+# =============================================================================
+global:
+  resolve_timeout: 5m
+
+templates:
+  - /etc/alertmanager/templates/*.tmpl
+
+route:
+  receiver: default
+  group_by: ['alertname', 'environment', 'severity']
+  # Give a burst of related alerts a moment to arrive so one incident is one page.
+  group_wait: 45s
+  group_interval: 5m
+  repeat_interval: 4h
+
+  routes:
+    # Production criticals page immediately and repeat until acknowledged.
+    - matchers:
+        - severity = critical
+        - environment = production
+      receiver: production-critical
+      group_wait: 10s
+      repeat_interval: 30m
+      continue: false
+
+    - matchers:
+        - severity = critical
+      receiver: critical
+      group_wait: 30s
+      repeat_interval: 2h
+
+    - matchers:
+        - severity = warning
+      receiver: warning
+      repeat_interval: 12h
+
+    # Non-production info is recorded but not routed anywhere noisy.
+    - matchers:
+        - severity = info
+      receiver: informational
+      repeat_interval: 24h
+
+inhibit_rules:
+  # A down target explains its own resource alerts; suppress the noise.
+  - source_matchers: [alertname = TargetDown]
+    target_matchers: [severity =~ 'warning|info']
+    equal: ['instance']
+
+  # A critical for a resource suppresses the matching warning.
+  - source_matchers: [severity = critical]
+    target_matchers: [severity = warning]
+    equal: ['alertname', 'instance']
+
+  # A dead Proxmox node explains its guests being unreachable.
+  - source_matchers: [alertname = ProxmoxNodeOffline]
+    target_matchers: [alertname = ProxmoxGuestStopped]
+    equal: ['environment']
+
+receivers:
+  - name: default
+    # Deliberately empty: an alert that reaches `default` is one with no severity
+    # label, which should be fixed in the rule rather than routed somewhere.
+
+  - name: production-critical
+    # Configure at least two channels so a single integration outage is not a
+    # silent page.
+    webhook_configs:
+      - url: '${ALERT_WEBHOOK_PRODUCTION_CRITICAL:-http://localhost:9099/noop}'
+        send_resolved: true
+        max_alerts: 20
+
+  - name: critical
+    webhook_configs:
+      - url: '${ALERT_WEBHOOK_CRITICAL:-http://localhost:9099/noop}'
+        send_resolved: true
+
+  - name: warning
+    webhook_configs:
+      - url: '${ALERT_WEBHOOK_WARNING:-http://localhost:9099/noop}'
+        send_resolved: true
+
+  - name: informational
+    webhook_configs:
+      - url: '${ALERT_WEBHOOK_INFO:-http://localhost:9099/noop}'
+        send_resolved: false

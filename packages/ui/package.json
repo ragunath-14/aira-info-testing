@@ -1,0 +1,15 @@
+{
+  "name": "@airaos/ui",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Shared design tokens and Tailwind preset for AIRAOS console surfaces.",
+  "main": "./tailwind-preset.cjs",
+  "exports": {
+    ".": "./tailwind-preset.cjs",
+    "./tokens.css": "./tokens.css"
+  },
+  "files": [
+    "tailwind-preset.cjs",
+    "tokens.css"
+  ]
+}

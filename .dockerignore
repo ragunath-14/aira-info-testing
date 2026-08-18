@@ -1,0 +1,14 @@
+node_modules
+**/node_modules
+**/.next
+**/dist
+**/coverage
+.git
+.github
+docs
+*.md
+.env
+.env.*
+!.env.example
+.pgdata
+.redisdata

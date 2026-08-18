@@ -1,0 +1,232 @@
+name: CI
+
+# Every pull request runs the full gate (spec section 49):
+#   lint → typecheck → unit → integration → security → build
+# A failing stage stops the pipeline, and only a green pipeline can be deployed.
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+# Cancel superseded runs on the same branch: the newest commit is the one that matters.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  lint:
+    name: Lint and typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      # Shared packages must be built before anything can typecheck against them.
+      - name: Build shared packages
+        run: |
+          npm run build -w @airaos/types
+          npm run build -w @airaos/config
+          npm run build -w @airaos/validation
+
+      - run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint --if-present
+
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build shared packages
+        run: |
+          npm run build -w @airaos/types
+          npm run build -w @airaos/config
+          npm run build -w @airaos/validation
+
+      - name: Unit tests
+        run: npm run test:unit -w @airaos/api
+
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: airaos
+          POSTGRES_PASSWORD: airaos
+          POSTGRES_DB: airaos_console_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U airaos"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgres://airaos:airaos@127.0.0.1:5432/airaos_console_test
+      REDIS_URL: redis://127.0.0.1:6379
+      # Deterministic non-secret test values. Real keys never appear in CI.
+      ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      AUDIT_LOG_SECRET: ci-audit-secret-0123456789abcdef
+      SESSION_SECRET: ci-session-secret-0123456789abcdef0123456789
+      LOCAL_AUTH_ENABLED: 'true'
+      CORS_ORIGINS: http://localhost:3000
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build shared packages
+        run: |
+          npm run build -w @airaos/types
+          npm run build -w @airaos/config
+          npm run build -w @airaos/validation
+
+      - name: Migrate and seed
+        run: |
+          npm run migrate -w @airaos/api
+          npm run seed -w @airaos/api
+
+      - name: Verify migrations are idempotent
+        # A second run must be a no-op; a checksum change here means someone
+        # edited an applied migration.
+        run: npm run migrate -w @airaos/api
+
+      - name: Integration tests
+        run: npm run test:integration -w @airaos/api
+
+  security:
+    name: Security checks
+    runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgres://airaos:airaos@127.0.0.1:5432/unused
+      ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      AUDIT_LOG_SECRET: ci-audit-secret-0123456789abcdef
+      SESSION_SECRET: ci-session-secret-0123456789abcdef0123456789
+      LOCAL_AUTH_ENABLED: 'true'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build shared packages
+        run: |
+          npm run build -w @airaos/types
+          npm run build -w @airaos/config
+          npm run build -w @airaos/validation
+
+      - name: Security tests
+        # Covers the write policy, RBAC boundaries and refusal paths.
+        run: npm run test:security -w @airaos/api
+
+      - name: Dependency audit
+        # Production dependencies only: a dev-only advisory should not block a
+        # deploy, but a high-severity runtime one must.
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Check for committed secrets
+        # Cheap structural check for the credential shapes this project uses.
+        # It complements, not replaces, a scanning tool in the org's pipeline.
+        run: |
+          set -euo pipefail
+          patterns='dop_v1_[a-f0-9]{64}|ghp_[A-Za-z0-9]{36}|-----BEGIN [A-Z ]*PRIVATE KEY-----|PVEAPIToken=[^$[:space:]]+=[0-9a-f-]{36}'
+          if git grep -nIE "$patterns" -- ':!*.md' ':!.github/workflows/*'; then
+            echo '::error::A credential-shaped string is committed. Rotate it and remove it from history.'
+            exit 1
+          fi
+          echo 'No credential-shaped strings found.'
+
+      - name: Check .env is not committed
+        run: |
+          set -euo pipefail
+          if git ls-files --error-unmatch .env >/dev/null 2>&1; then
+            echo '::error::.env is tracked in git. Remove it and rotate every value it contained.'
+            exit 1
+          fi
+          test -f .env.example || { echo '::error::.env.example is missing.'; exit 1; }
+          echo '.env is not tracked and .env.example is present.'
+
+      - name: Assert no arbitrary execution endpoint exists
+        # Rules 2 and 3: no shell execution, no container exec. A grep is a blunt
+        # instrument, but it catches the obvious regression in review.
+        run: |
+          set -euo pipefail
+          if git grep -nIE "child_process|execSync|spawnSync|/containers/[^\"']*/exec" -- 'apps/**/*.ts' 'apps/**/*.tsx'; then
+            echo '::error::Process execution or container exec was introduced. See docs/security.md rules 2 and 3.'
+            exit 1
+          fi
+          echo 'No process execution or container exec found.'
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    # Only build once the gates have passed: a green build of broken code is not
+    # useful, and it is what the deploy workflow promotes.
+    needs: [lint, unit, integration, security]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build everything
+        run: npm run build
+
+      - name: Build container images
+        # Built but not pushed: publishing happens in the deploy workflow, which
+        # is the only place with registry credentials.
+        run: |
+          docker build -f docker/Dockerfile.api -t airaos-infra-api:ci .
+          docker build -f docker/Dockerfile.web -t airaos-infra-web:ci .

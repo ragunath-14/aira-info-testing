@@ -1,0 +1,40 @@
+{
+  "name": "airaos-infra-console",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AIRAOS Infra Console \u2014 internal infrastructure control plane (monitoring-first, controlled operations)",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "audit:deps": "npm audit --omit=dev --audit-level=high",
+    "build": "npm run build:packages && npm run build -w @airaos/api && npm run build -w @airaos/web",
+    "build:packages": "npm run build -w @airaos/types && npm run build -w @airaos/config && npm run build -w @airaos/validation",
+    "connections:import": "npm run connections:import -w @airaos/api",
+    "dev": "concurrently -n api,web -c cyan,magenta \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "npm run dev -w @airaos/api",
+    "dev:web": "npm run dev -w @airaos/web",
+    "lint": "eslint apps packages --ext .ts,.tsx --max-warnings=0",
+    "migrate": "npm run migrate -w @airaos/api",
+    "retention": "npm run retention -w @airaos/api",
+    "seed": "npm run seed -w @airaos/api",
+    "seed:demo": "npm run seed -w @airaos/api -- --demo",
+    "test": "npm run test --workspaces --if-present",
+    "test:integration": "npm run test:integration -w @airaos/api",
+    "test:security": "npm run test:security -w @airaos/api",
+    "test:unit": "npm run test:unit -w @airaos/api",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@typescript-eslint/eslint-plugin": "^8.18.0",
+    "@typescript-eslint/parser": "^8.18.0",
+    "concurrently": "^9.1.0",
+    "eslint": "^8.57.1",
+    "typescript": "^5.7.2"
+  }
+}

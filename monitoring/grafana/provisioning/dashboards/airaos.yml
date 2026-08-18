@@ -1,0 +1,17 @@
+# Dashboard provisioning. Dashboard JSON lives beside this file; the console
+# deep-links to these UIDs from its Metrics page:
+#   airaos-infra, airaos-apps, airaos-postgres, airaos-redis
+apiVersion: 1
+
+providers:
+  - name: AIRAOS
+    orgId: 1
+    folder: AIRAOS
+    type: file
+    disableDeletion: true
+    # Provisioned dashboards are managed in git, not edited in the UI.
+    allowUiUpdates: false
+    updateIntervalSeconds: 60
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false

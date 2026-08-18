@@ -1,0 +1,204 @@
+# =============================================================================
+# AIRAOS Infra Console — local / single-host deployment
+#
+#   docker compose -f docker/docker-compose.yml --env-file .env up -d
+#
+# Notes on the shape of this file:
+#  - Only the web service publishes a port. The API is reachable on the internal
+#    network only, which is what keeps infrastructure credentials off the host's
+#    listening interfaces (rule 1).
+#  - The console's PostgreSQL and Redis are for the console itself. They are not
+#    the databases the console monitors.
+#  - Secrets come from .env, which is never baked into an image.
+# =============================================================================
+name: airaos-infra-console
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-airaos}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-airaos_console}
+    volumes:
+      - console-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-airaos} -d ${POSTGRES_DB:-airaos_console}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [console]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # No persistence needed: this Redis holds cache and rate-limit counters only.
+    command: ['redis-server', '--save', '', '--appendonly', 'no', '--maxmemory', '256mb', '--maxmemory-policy', 'allkeys-lru']
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks: [console]
+
+  migrate:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    restart: 'no'
+    command: ['npx', 'tsx', 'apps/api/src/db/migrate.ts']
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      AUDIT_LOG_SECRET: ${AUDIT_LOG_SECRET}
+      SESSION_SECRET: ${SESSION_SECRET}
+      AIRAOS_AUTH_URL: ${AIRAOS_AUTH_URL}
+      AIRAOS_AUTH_CLIENT_ID: ${AIRAOS_AUTH_CLIENT_ID}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [console]
+
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      APP_ENV: ${APP_ENV:-production}
+      APP_URL: ${APP_URL}
+      API_PORT: 4000
+      # Binds on all interfaces inside the container; no host port is published.
+      API_HOST: 0.0.0.0
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: redis://redis:6379
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      AUDIT_LOG_SECRET: ${AUDIT_LOG_SECRET}
+      SESSION_SECRET: ${SESSION_SECRET}
+      AIRAOS_AUTH_URL: ${AIRAOS_AUTH_URL}
+      AIRAOS_AUTH_CLIENT_ID: ${AIRAOS_AUTH_CLIENT_ID}
+      AIRAOS_AUTH_SECRET: ${AIRAOS_AUTH_SECRET}
+      AIRAOS_AUTH_ISSUER: ${AIRAOS_AUTH_ISSUER}
+      AIRAOS_AUTH_JWKS_URL: ${AIRAOS_AUTH_JWKS_URL}
+      AUTH_REQUIRE_MFA: ${AUTH_REQUIRE_MFA:-true}
+      DIGITALOCEAN_API_TOKEN: ${DIGITALOCEAN_API_TOKEN}
+      DIGITALOCEAN_WRITE_API_TOKEN: ${DIGITALOCEAN_WRITE_API_TOKEN}
+      PROXMOX_API_URL: ${PROXMOX_API_URL}
+      PROXMOX_TOKEN_ID: ${PROXMOX_TOKEN_ID}
+      PROXMOX_TOKEN_SECRET: ${PROXMOX_TOKEN_SECRET}
+      PROXMOX_TLS_REJECT_UNAUTHORIZED: ${PROXMOX_TLS_REJECT_UNAUTHORIZED:-true}
+      PROXMOX_CA_CERT_PATH: ${PROXMOX_CA_CERT_PATH}
+      PROMETHEUS_URL: ${PROMETHEUS_URL:-http://prometheus:9090}
+      ALERTMANAGER_URL: ${ALERTMANAGER_URL:-http://alertmanager:9093}
+      GRAFANA_URL: ${GRAFANA_URL}
+      DOCKER_SOCKET_PATH: ${DOCKER_SOCKET_PATH}
+      DOCKER_ALLOWED_CONTAINERS: ${DOCKER_ALLOWED_CONTAINERS}
+    volumes:
+      # Read-only, and only mounted when container control is wanted. The API
+      # still refuses to act on anything outside DOCKER_ALLOWED_CONTAINERS.
+      - ${DOCKER_SOCKET_PATH:-/dev/null}:${DOCKER_SOCKET_PATH:-/dev/null}:ro
+      - ${PROXMOX_CA_CERT_PATH:-/dev/null}:${PROXMOX_CA_CERT_PATH:-/dev/null}:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks: [console]
+
+  web:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.web
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      API_INTERNAL_URL: http://api:4000
+      NEXT_PUBLIC_API_BASE_URL: /api/proxy
+      NEXT_PUBLIC_APP_ENV: ${APP_ENV:-production}
+    ports:
+      # Bound to localhost: terminate TLS in front of this with Cloudflare, nginx
+      # or Caddy rather than exposing the console directly.
+      - '127.0.0.1:3000:3000'
+    depends_on:
+      - api
+    networks: [console]
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=30d'
+      # Admin API stays disabled: the console never calls it, and enabling it
+      # would allow series deletion over HTTP.
+      - '--web.enable-lifecycle'
+    volumes:
+      - ../monitoring/prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+    networks: [console]
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.0
+    restart: unless-stopped
+    command: ['--config.file=/etc/alertmanager/alertmanager.yml']
+    volumes:
+      - ../monitoring/alertmanager:/etc/alertmanager:ro
+      - alertmanager-data:/alertmanager
+    networks: [console]
+
+  grafana:
+    image: grafana/grafana:11.5.0
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_AUTH_ANONYMOUS_ENABLED: 'false'
+      # The console links out to Grafana rather than embedding it, so framing
+      # stays disabled.
+      GF_SECURITY_ALLOW_EMBEDDING: 'false'
+    volumes:
+      - ../monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - '127.0.0.1:3001:3000'
+    networks: [console]
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    restart: unless-stopped
+    command:
+      - '--path.rootfs=/host'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+    networks: [console]
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    restart: unless-stopped
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    networks: [console]
+
+volumes:
+  console-postgres:
+  prometheus-data:
+  alertmanager-data:
+  grafana-data:
+
+networks:
+  console:
+    driver: bridge

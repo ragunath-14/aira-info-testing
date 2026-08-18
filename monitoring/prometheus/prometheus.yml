@@ -1,0 +1,117 @@
+# =============================================================================
+# Prometheus configuration for the AIRAOS estate.
+#
+# Scrape targets are grouped by environment so every series carries an
+# `environment` label. The console's metric presets and the alert rules both rely
+# on that label to scope results to what an operator may see.
+# =============================================================================
+global:
+  scrape_interval: 30s
+  scrape_timeout: 10s
+  evaluation_interval: 30s
+  external_labels:
+    cluster: airaos
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          environment: production
+
+  # --------------------------------------------------------------- host level --
+  - job_name: node
+    static_configs:
+      - targets: ['node-exporter:9100']
+        labels:
+          environment: production
+          role: console-host
+      # Add one entry per host. Keep the environment label accurate: the console
+      # uses it to decide who can see the series.
+      # - targets: ['10.20.30.11:9100']
+      #   labels: { environment: production, role: app }
+      # - targets: ['10.10.20.11:9100']
+      #   labels: { environment: staging, role: app }
+      # - targets: ['10.10.10.11:9100']
+      #   labels: { environment: development, role: app }
+
+  # ----------------------------------------------------------------- containers --
+  - job_name: cadvisor
+    static_configs:
+      - targets: ['cadvisor:8080']
+        labels:
+          environment: production
+    metric_relabel_configs:
+      # cAdvisor emits a series per cgroup; keep only named containers to stop
+      # the TSDB filling with churn from short-lived cgroups.
+      - source_labels: [name]
+        regex: '.+'
+        action: keep
+
+  # ----------------------------------------------------------------- Proxmox --
+  # pve-exporter runs alongside the console and is given a scoped Proxmox token.
+  - job_name: proxmox
+    metrics_path: /pve
+    params:
+      cluster: ['1']
+      node: ['1']
+    static_configs:
+      - targets: ['pve-exporter:9221']
+        labels:
+          environment: production
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+
+  # ---------------------------------------------------------------- database --
+  - job_name: postgres
+    static_configs:
+      # - targets: ['postgres-exporter-prod:9187']
+      #   labels: { environment: production }
+      # - targets: ['postgres-exporter-staging:9187']
+      #   labels: { environment: staging }
+      - targets: []
+
+  - job_name: redis
+    static_configs:
+      # - targets: ['redis-exporter:9121']
+      #   labels: { environment: production }
+      - targets: []
+
+  # ------------------------------------------------------------ applications --
+  # AIRAOS services expose /metrics. The job label is what the console's
+  # app_* presets filter on, so it should match the application registry key.
+  - job_name: airaos-api
+    metrics_path: /metrics
+    static_configs:
+      # - targets: ['10.20.30.11:8080']
+      #   labels: { environment: production }
+      - targets: []
+
+  - job_name: airaos-web
+    metrics_path: /metrics
+    static_configs:
+      - targets: []
+
+  - job_name: airaos-worker
+    metrics_path: /metrics
+    static_configs:
+      - targets: []
+
+  # ------------------------------------------------------- the console itself --
+  - job_name: airaos-infra-console
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['api:4000']
+        labels:
+          environment: production

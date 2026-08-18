@@ -1,0 +1,267 @@
+# =============================================================================
+# Alert rules (spec section 15).
+#
+# Conventions every rule here follows, because the console relies on them:
+#
+#  - `severity` is one of critical / warning / info. Anything else is treated as
+#    info by the console.
+#  - `environment` is inherited from the target labels. An alert with no
+#    environment label is shown to every operator rather than hidden, so a
+#    mislabelled target produces noise instead of silence.
+#  - `summary` is one line an operator can act on. `description` carries detail.
+#  - `runbook_url` is surfaced as a link in the console; add one wherever a
+#    runbook exists.
+# =============================================================================
+groups:
+  - name: availability
+    rules:
+      - alert: TargetDown
+        expr: up == 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: '{{ $labels.job }} target {{ $labels.instance }} is not responding'
+          description: >-
+            Prometheus has failed to scrape {{ $labels.instance }} for 3 minutes.
+            Either the exporter is down or the host is unreachable.
+          runbook_url: https://runbooks.airaos.internal/target-down
+
+      - alert: DropletUnavailable
+        expr: up{role="app"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Application host {{ $labels.instance }} is unreachable'
+          description: 'No successful scrape for 2 minutes. Check the droplet or VM state in the console.'
+
+  - name: host_resources
+    rules:
+      - alert: HostCpuHigh
+        expr: 100 - (avg by (instance, environment) (rate(node_cpu_seconds_total{mode="idle"}[10m])) * 100) > 90
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'CPU above 90% on {{ $labels.instance }}'
+          description: 'Sustained for 15 minutes. Check for a runaway process or an undersized host.'
+
+      - alert: HostMemoryHigh
+        expr: 100 * (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) > 94
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Memory above 94% on {{ $labels.instance }}'
+          description: 'The host is close to invoking the OOM killer.'
+
+      - alert: HostDiskHigh
+        expr: 100 * (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"})) > 85
+        for: 20m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Filesystem {{ $labels.mountpoint }} above 85% on {{ $labels.instance }}'
+          description: 'Plan for growth before it becomes an outage.'
+
+      - alert: HostDiskCritical
+        expr: 100 * (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"})) > 94
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Filesystem {{ $labels.mountpoint }} above 94% on {{ $labels.instance }}'
+          description: 'Writes will start failing shortly. Free space now.'
+
+      - alert: HostDiskWillFillIn24h
+        # Predictive: catches steady growth before a threshold is crossed.
+        expr: |
+          predict_linear(node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"}[6h], 24 * 3600) < 0
+          and node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"} < 0.4
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.mountpoint }} on {{ $labels.instance }} is projected to fill within 24 hours'
+          description: 'Based on the last 6 hours of growth.'
+
+      - alert: HostLoadHigh
+        expr: node_load5 / on (instance) count by (instance) (node_cpu_seconds_total{mode="idle"}) > 2
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Load average above 2 per core on {{ $labels.instance }}'
+
+  - name: applications
+    rules:
+      - alert: ApplicationErrorRateHigh
+        expr: |
+          100 * (
+            sum by (job, environment) (rate(http_requests_total{status=~"5.."}[5m]))
+            / clamp_min(sum by (job, environment) (rate(http_requests_total[5m])), 0.001)
+          ) > 5
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: '{{ $labels.job }} is returning over 5% 5xx responses'
+          description: 'Check the service logs and its dependency health in the console.'
+          runbook_url: https://runbooks.airaos.internal/high-error-rate
+
+      - alert: ApplicationLatencyHigh
+        expr: histogram_quantile(0.95, sum by (le, job, environment) (rate(http_request_duration_seconds_bucket[5m]))) > 1.5
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.job }} p95 latency above 1.5s'
+
+      - alert: ContainerRestartLoop
+        expr: increase(container_start_time_seconds{name!=""}[15m]) > 3
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Container {{ $labels.name }} has restarted repeatedly'
+          description: 'More than three restarts in 15 minutes suggests a crash loop.'
+
+  - name: database
+    rules:
+      - alert: PostgresDown
+        expr: pg_up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'PostgreSQL at {{ $labels.instance }} is unreachable'
+          runbook_url: https://runbooks.airaos.internal/postgres-down
+
+      - alert: PostgresConnectionsHigh
+        expr: |
+          sum by (instance, environment) (pg_stat_activity_count)
+          / on (instance) pg_settings_max_connections > 0.85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'PostgreSQL at {{ $labels.instance }} is above 85% of max_connections'
+          description: 'New connections will start being refused. Check for connection leaks.'
+
+      - alert: PostgresReplicationLagHigh
+        expr: pg_replication_lag > 300
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Replica {{ $labels.instance }} is more than 5 minutes behind'
+
+      - alert: PostgresCacheHitRatioLow
+        expr: |
+          100 * sum by (instance, environment) (rate(pg_stat_database_blks_hit[30m]))
+          / clamp_min(sum by (instance, environment) (
+              rate(pg_stat_database_blks_hit[30m]) + rate(pg_stat_database_blks_read[30m])
+            ), 0.001) < 90
+        for: 30m
+        labels:
+          severity: info
+        annotations:
+          summary: 'Cache hit ratio below 90% on {{ $labels.instance }}'
+          description: 'Often a missing index or an undersized shared_buffers.'
+
+  - name: cache
+    rules:
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Redis at {{ $labels.instance }} is unreachable'
+
+      - alert: RedisMemoryHigh
+        expr: redis_memory_used_bytes / clamp_min(redis_memory_max_bytes, 1) > 0.9
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Redis at {{ $labels.instance }} is above 90% of maxmemory'
+          description: 'Eviction is imminent, which will show up as cache misses.'
+
+      - alert: RedisEvictingKeys
+        expr: rate(redis_evicted_keys_total[10m]) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Redis at {{ $labels.instance }} is evicting keys'
+
+  - name: proxmox
+    rules:
+      - alert: ProxmoxNodeOffline
+        expr: pve_up{id=~"node/.*"} == 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Proxmox node {{ $labels.id }} is offline'
+
+      - alert: ProxmoxClusterNotQuorate
+        expr: pve_cluster_info == 0 or absent(pve_cluster_info)
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Proxmox cluster has lost quorum'
+          description: 'HA actions and guest migrations are unavailable until quorum returns.'
+
+      - alert: ProxmoxGuestStopped
+        expr: pve_up{id=~"(qemu|lxc)/.*"} == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Proxmox guest {{ $labels.id }} has been stopped for 10 minutes'
+          description: 'Expected for a deliberately powered-off guest; investigate otherwise.'
+
+      - alert: ProxmoxStorageHigh
+        expr: pve_disk_usage_bytes{id=~"storage/.*"} / clamp_min(pve_disk_size_bytes{id=~"storage/.*"}, 1) > 0.85
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Proxmox storage {{ $labels.id }} is above 85%'
+          description: 'Backups will start failing before the volume is full.'
+
+  - name: certificates
+    rules:
+      - alert: TlsCertificateExpiringSoon
+        expr: (probe_ssl_earliest_cert_expiry - time()) / 86400 < 21
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: 'TLS certificate for {{ $labels.instance }} expires in under 21 days'
+          runbook_url: https://runbooks.airaos.internal/certificate-renewal
+
+      - alert: TlsCertificateExpiringCritical
+        expr: (probe_ssl_earliest_cert_expiry - time()) / 86400 < 7
+        for: 1h
+        labels:
+          severity: critical
+        annotations:
+          summary: 'TLS certificate for {{ $labels.instance }} expires in under 7 days'
+
+  - name: console
+    rules:
+      - alert: ConsoleApiDown
+        expr: up{job="airaos-infra-console"} == 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'The infra console API is not responding'
+          description: >-
+            Operators cannot see the estate or perform audited operations while
+            this is down. Provider infrastructure is unaffected.

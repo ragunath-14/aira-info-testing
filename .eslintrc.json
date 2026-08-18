@@ -1,0 +1,121 @@
+{
+  "root": true,
+  "parser": "@typescript-eslint/parser",
+  "parserOptions": {
+    "ecmaVersion": 2023,
+    "sourceType": "module"
+  },
+  "plugins": [
+    "@typescript-eslint"
+  ],
+  "extends": [
+    "eslint:recommended",
+    "plugin:@typescript-eslint/recommended"
+  ],
+  "env": {
+    "node": true,
+    "es2023": true,
+    "browser": true
+  },
+  "rules": {
+    "no-console": [
+      "error",
+      {
+        "allow": [
+          "warn",
+          "error"
+        ]
+      }
+    ],
+    "eqeqeq": [
+      "error",
+      "always"
+    ],
+    "no-implicit-coercion": "error",
+    "@typescript-eslint/no-unused-vars": [
+      "error",
+      {
+        "argsIgnorePattern": "^_",
+        "varsIgnorePattern": "^_",
+        "caughtErrors": "none"
+      }
+    ],
+    "@typescript-eslint/no-explicit-any": "error",
+    "@typescript-eslint/consistent-type-imports": [
+      "warn",
+      {
+        "prefer": "type-imports"
+      }
+    ],
+    "no-restricted-imports": [
+      "error",
+      {
+        "paths": [
+          {
+            "name": "child_process",
+            "message": "The console never spawns processes (security rule 2). Use the allowlisted operations registry."
+          },
+          {
+            "name": "node:child_process",
+            "message": "The console never spawns processes (security rule 2). Use the allowlisted operations registry."
+          },
+          {
+            "name": "pg",
+            "message": "The console's own database is accessed only through Drizzle (src/db/drizzle.ts). The raw pg driver belongs in src/db/pool.ts, which owns the pool, and in src/providers/databases, which talks to external targets whose schemas are unknown."
+          }
+        ]
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": [
+        "**/*.tsx"
+      ],
+      "rules": {
+        "no-undef": "off"
+      }
+    },
+    {
+      "files": [
+        "apps/api/tests/**/*.ts"
+      ],
+      "rules": {
+        "@typescript-eslint/no-explicit-any": "off",
+        "@typescript-eslint/consistent-type-imports": "off"
+      }
+    },
+    {
+      "files": [
+        "apps/api/src/db/*.ts",
+        "apps/api/src/index.ts"
+      ],
+      "rules": {
+        "no-console": "off"
+      }
+    },
+    {
+      "files": [
+        "apps/api/src/db/pool.ts",
+        "apps/api/src/providers/databases/**/*.ts"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "child_process",
+                "message": "The console never spawns processes (security rule 2). Use the allowlisted operations registry."
+              },
+              {
+                "name": "node:child_process",
+                "message": "The console never spawns processes (security rule 2). Use the allowlisted operations registry."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+# Grafana datasource provisioning. Read-only so a Grafana user cannot repoint it.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: 30s
+      httpMethod: POST
+      # Matches the alert rule evaluation interval so graphs and alerts agree.
+      queryTimeout: 60s
+
+  - name: Alertmanager
+    type: alertmanager
+    access: proxy
+    url: http://alertmanager:9093
+    editable: false
+    jsonData:
+      implementation: prometheus
+      handleGrafanaManagedAlerts: false
