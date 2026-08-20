@@ -80,7 +80,8 @@ async function forward(request: NextRequest, segments: string[]): Promise<Respon
   // only because it is configured to sit behind this proxy.
   const clientIp = request.headers.get('x-forwarded-for') ?? request.headers.get('x-real-ip');
   if (clientIp) headers.set('x-forwarded-for', clientIp);
-  headers.set('origin', request.nextUrl.origin);
+  const incomingOrigin = request.headers.get('origin') ?? request.nextUrl.origin;
+  headers.set('origin', incomingOrigin);
 
   const hasBody = !['GET', 'HEAD'].includes(request.method);
 
