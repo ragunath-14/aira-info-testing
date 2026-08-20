@@ -8,12 +8,12 @@ services:
     name: airaos-infra-api
     env: node
     plan: free
-    region: frankfurt # or oregon, singapore
+    region: singapore
     buildCommand: npm install && npm run build:packages && npm run build -w @airaos/api
     startCommand: npm run migrate -w @airaos/api && npm run start -w @airaos/api
     envVars:
       - key: NODE_ENV
-        value: development # Use development mode to enable local database auth for demo/testing
+        value: development
       - key: APP_ENV
         value: development
       - key: API_PORT
@@ -29,18 +29,23 @@ services:
       - key: DATABASE_SSL
         value: "true"
       - key: ENCRYPTION_KEY
-        generateValue: true
+        value: tlMAeGvGajNC9LPXsHMMPeZEUpVAVTzTScn+hiQGU9I=
       - key: AUDIT_LOG_SECRET
-        generateValue: true
+        value: RqIK+oHnWKXMHKPhJphI4CxbqHh8F/dJ41AvHe58vrk=
       - key: SESSION_SECRET
-        generateValue: true
+        value: 1DuGsuPyQRNN8bvQ5srPBSZxEeJe04CzFJaBDrttzA4JbB6dlYTULJJ/WksHyXXx
+      - key: CORS_ORIGINS
+        fromService:
+          type: web
+          name: airaos-infra-web
+          property: url
 
   # ------------------------------------------------------------------ Web Service
   - type: web
     name: airaos-infra-web
     env: node
     plan: free
-    region: frankfurt
+    region: singapore
     buildCommand: npm install && npm run build:packages && npm run build -w @airaos/web
     startCommand: npm run start -w @airaos/web
     envVars:
@@ -50,7 +55,7 @@ services:
         fromService:
           type: web
           name: airaos-infra-api
-          property: hostport
+          property: url
       - key: NEXT_PUBLIC_API_BASE_URL
         value: /api/proxy
 
@@ -60,3 +65,4 @@ databases:
     databaseName: airaos_console
     user: airaos
     plan: free
+    region: singapore
