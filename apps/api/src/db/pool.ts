@@ -27,7 +27,9 @@ export function db(): pg.Pool {
     pool = new Pool({
       connectionString: cfg.DATABASE_URL,
       max: cfg.DATABASE_POOL_MAX,
-      ssl: cfg.DATABASE_SSL ? { rejectUnauthorized: true } : undefined,
+      ssl: cfg.DATABASE_SSL
+        ? { rejectUnauthorized: process.env.DATABASE_SSL_REJECT_UNAUTHORIZED === 'true' }
+        : undefined,
       // The console's own queries are small; a slow one means something is wrong.
       statement_timeout: 10_000,
       query_timeout: 10_000,
