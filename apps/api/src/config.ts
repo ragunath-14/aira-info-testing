@@ -1,6 +1,28 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { loadConfig, type AppConfig, ConfigError } from '@airaos/config';
 
 let cached: AppConfig | null = null;
+
+function loadEnvFileIfPresent(): void {
+  const rootEnv = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../.env');
+  if (fs.existsSync(rootEnv)) {
+    try {
+      const content = fs.readFileSync(rootEnv, 'utf8');
+      for (const line of content.split('\n')) {
+        const match = /^\s*([A-Z0-9_]+)\s*=\s*(.*)$/.exec(line);
+        if (!match) continue;
+        const [, key, rawValue] = match;
+        if (!key || rawValue === undefined) continue;
+        if (process.env[key] !== undefined) continue;
+        process.env[key] = rawValue.trim().replace(/^['"]|['"]$/g, '');
+      }
+    } catch {
+      // Ignore reading errors if .env is unreadable
+    }
+  }
+}
 
 /**
  * Process-wide configuration. Loaded once; a failure here is fatal by design
@@ -8,6 +30,7 @@ let cached: AppConfig | null = null;
  */
 export function config(): AppConfig {
   if (!cached) {
+    loadEnvFileIfPresent();
     cached = loadConfig();
   }
   return cached;
