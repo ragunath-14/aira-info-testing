@@ -1,0 +1,62 @@
+# =============================================================================
+# AIRAOS Infra Console — Render Blueprint Deployment
+# =============================================================================
+
+services:
+  # ------------------------------------------------------------------ API Service
+  - type: web
+    name: airaos-infra-api
+    env: node
+    plan: free
+    region: frankfurt # or oregon, singapore
+    buildCommand: npm install && npm run build:packages && npm run build -w @airaos/api
+    startCommand: npm run migrate -w @airaos/api && npm run start -w @airaos/api
+    envVars:
+      - key: NODE_ENV
+        value: development # Use development mode to enable local database auth for demo/testing
+      - key: APP_ENV
+        value: development
+      - key: API_PORT
+        value: 10000
+      - key: API_HOST
+        value: 0.0.0.0
+      - key: LOCAL_AUTH_ENABLED
+        value: "true"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: airaos-console-db
+          property: connectionString
+      - key: DATABASE_SSL
+        value: "true"
+      - key: ENCRYPTION_KEY
+        generateValue: true
+      - key: AUDIT_LOG_SECRET
+        generateValue: true
+      - key: SESSION_SECRET
+        generateValue: true
+
+  # ------------------------------------------------------------------ Web Service
+  - type: web
+    name: airaos-infra-web
+    env: node
+    plan: free
+    region: frankfurt
+    buildCommand: npm install && npm run build:packages && npm run build -w @airaos/web
+    startCommand: npm run start -w @airaos/web
+    envVars:
+      - key: NODE_ENV
+        value: development
+      - key: API_INTERNAL_URL
+        fromService:
+          type: web
+          name: airaos-infra-api
+          property: hostport
+      - key: NEXT_PUBLIC_API_BASE_URL
+        value: /api/proxy
+
+databases:
+  # ----------------------------------------------------------- PostgreSQL Database
+  - name: airaos-console-db
+    databaseName: airaos_console
+    user: airaos
+    plan: free
