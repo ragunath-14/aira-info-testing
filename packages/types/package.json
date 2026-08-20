@@ -19,7 +19,7 @@
     "dev": "tsc -p tsconfig.json --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
-  "devDependencies": {
+  "dependencies": {
     "@types/node": "^22.10.2",
     "typescript": "^5.7.2"
   }

@@ -21,10 +21,8 @@
   },
   "dependencies": {
     "@airaos/types": "1.0.0",
-    "zod": "^3.24.1"
-  },
-  "devDependencies": {
     "@types/node": "^22.10.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "zod": "^3.24.1"
   }
 }
