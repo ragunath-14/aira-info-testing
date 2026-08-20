@@ -118,7 +118,7 @@ async function runSqlSeeds(files: string[]): Promise<void> {
   }
 }
 
-async function seedLocalOperator(): Promise<void> {
+export async function seedLocalOperator(): Promise<void> {
   const email = process.env.SEED_ADMIN_EMAIL ?? 'admin@airaos.local';
   const password = process.env.SEED_ADMIN_PASSWORD ?? 'airaos-dev-password';
 

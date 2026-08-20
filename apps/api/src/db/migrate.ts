@@ -102,6 +102,12 @@ if (isEntrypoint) {
         ? `Up to date (${result.skipped.length} migrations already applied).\n`
         : `Applied ${result.applied.length} migration(s).\n`,
     );
+    if (cfg.LOCAL_AUTH_ENABLED) {
+      process.stdout.write('Seeding RBAC and default admin operator...\n');
+      const { syncRbac, seedLocalOperator } = await import('./seed.js');
+      await syncRbac();
+      await seedLocalOperator();
+    }
   } catch (error) {
     process.stderr.write(`${(error as Error).message}\n`);
     process.exitCode = 1;
