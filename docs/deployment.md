@@ -1,5 +1,10 @@
 # Deployment
 
+> **This document describes the Docker/self-hosted production path.** The
+> current live Phase 1 test deployment runs on Render instead — see
+> [render-deployment.md](render-deployment.md) for that setup, its test URL,
+> and its testing/security/cost reports.
+
 ## Topology
 
 ```
