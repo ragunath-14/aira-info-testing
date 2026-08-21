@@ -34,10 +34,12 @@ services:
         sync: false
       - key: SEED_ADMIN_PASSWORD
         sync: false
+      # Points at the airaos-console-db instance you already created and
+      # migrated by hand — not managed by this blueprint (see note below),
+      # so it's a plain dashboard secret rather than fromDatabase. Paste the
+      # Internal Database URL from that Postgres's Connections tab.
       - key: DATABASE_URL
-        fromDatabase:
-          name: airaos-console-db
-          property: connectionString
+        sync: false
       - key: DATABASE_SSL
         value: "true"
       # Secrets are entered directly in the Render dashboard, never committed here.
@@ -47,11 +49,13 @@ services:
         sync: false
       - key: SESSION_SECRET
         sync: false
+      # Render's Blueprint fromService only exposes connectionString/host/
+      # hostport/port for a sibling service — not its public HTTPS URL — so
+      # this has to be filled in by hand once airaos-infra-web has a real
+      # onrender.com address. Set to that exact URL, e.g.
+      # https://airaos-infra-web-xxxx.onrender.com (no trailing slash).
       - key: CORS_ORIGINS
-        fromService:
-          type: web
-          name: airaos-infra-web
-          property: url
+        sync: false
 
   # ------------------------------------------------------------------ Web Service
   - type: web
@@ -68,21 +72,23 @@ services:
         value: 3000
       - key: HOSTNAME
         value: 0.0.0.0
+      # Same fromService limitation as CORS_ORIGINS above. Fill in by hand
+      # once airaos-infra-api exists: open that service's page, copy the
+      # "Internal Address" shown under Connect (host:port on Render's
+      # private network — internal traffic doesn't need HTTPS), and prefix
+      # it with http://, e.g. http://airaos-infra-api:10000.
       - key: API_INTERNAL_URL
-        fromService:
-          type: web
-          name: airaos-infra-api
-          property: url
+        sync: false
       - key: NEXT_PUBLIC_API_BASE_URL
         value: /api/proxy
 
-databases:
-  # ----------------------------------------------------------- PostgreSQL Database
-  # Render free Postgres: not deleted on a schedule, but Render suspends
-  # (not deletes) a free instance after 90 days of inactivity — resume it
-  # from the dashboard if that happens. Still $0.
-  - name: airaos-console-db
-    databaseName: airaos_console
-    user: airaos
-    plan: free
-    region: singapore
+# airaos-console-db (Render free Postgres) was created and migrated by hand
+# before this blueprint existed, so it's intentionally NOT declared under a
+# `databases:` block here — doing so would make Render's Blueprint sync try
+# to provision a second, empty Postgres with a colliding name instead of
+# reusing the one already migrated. Wire DATABASE_URL to it manually in the
+# dashboard instead (see the API service's env vars above).
+#
+# Render free Postgres note: not deleted on a schedule, but Render suspends
+# (not deletes) a free instance after 90 days of inactivity — resume it from
+# the dashboard if that happens. Still $0.
