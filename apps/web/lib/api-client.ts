@@ -95,11 +95,17 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   try {
     payload = (await response.json()) as ApiResponse<T>;
   } catch {
-    // A non-JSON body means something between here and the API broke.
+    // A non-JSON body means something between here and the API broke — often
+    // Render's edge answering while a spun-down free instance is still cold
+    // starting, which the app never gets a chance to turn into a clean JSON
+    // error. Treat any 5xx here as retryable: the same request tends to
+    // succeed a few seconds later once the container is up.
     throw new ApiClientError(
       'INTERNAL_ERROR',
       `The console API returned an unreadable response (HTTP ${response.status}).`,
       response.status,
+      undefined,
+      response.status >= 500,
     );
   }
 

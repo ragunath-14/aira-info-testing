@@ -49,19 +49,47 @@ function LoginForm() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [waking, setWaking] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    api
-      .get<AuthMethods>('auth/methods')
-      .then(setMethods)
-      .catch((caught) =>
-        setError(
-          caught instanceof ApiClientError
-            ? caught.message
-            : 'The console API is not reachable right now.',
-        ),
-      );
+    let cancelled = false;
+    // A free-tier API instance that spun down after idling can take several
+    // seconds to wake on the first request, during which Render's edge may
+    // answer with a raw 502 before the app itself is up. Retry transient
+    // failures a couple of times before showing the operator a dead end.
+    const MAX_ATTEMPTS = 3;
+
+    const attempt = (count: number) => {
+      api
+        .get<AuthMethods>('auth/methods')
+        .then((result) => {
+          if (!cancelled) {
+            setMethods(result);
+            setWaking(false);
+          }
+        })
+        .catch((caught) => {
+          if (cancelled) return;
+          const retryable = caught instanceof ApiClientError && caught.retryable;
+          if (retryable && count < MAX_ATTEMPTS) {
+            setWaking(true);
+            setTimeout(() => attempt(count + 1), 3000);
+            return;
+          }
+          setWaking(false);
+          setError(
+            caught instanceof ApiClientError
+              ? caught.message
+              : 'The console API is not reachable right now.',
+          );
+        });
+    };
+
+    attempt(1);
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const startSso = async () => {
@@ -104,6 +132,14 @@ function LoginForm() {
         </div>
 
         <Card className="p-5">
+          {waking && !methods && !error ? (
+            <p className="mb-4 flex items-center gap-2 rounded-md border border-border bg-surface-sunken px-3 py-2 text-xs text-muted-foreground">
+              <Spinner className="h-3.5 w-3.5" />
+              Waking up the console API — this can take a moment on a free-tier
+              instance that&apos;s been idle.
+            </p>
+          ) : null}
+
           {error ? (
             <p
               className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive"
