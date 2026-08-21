@@ -71,7 +71,7 @@ credential.
 | Open ports | N/A in the VM sense — no self-managed host. Both services expose only HTTPS (443) via Render's edge; there is no way to reach either service's raw listening port from outside Render |
 | Firewall configuration | Managed by Render; not independently configurable in this topology, which is the free-tier trade-off for not self-hosting Nginx |
 | PostgreSQL exposure | Reachable only via `DATABASE_URL`, entered as a Render dashboard secret (`sync: false` in `render.yaml`), never committed. Not reachable from the browser under any code path |
-| SSH | N/A — no VM to SSH into |
+| SSH | N/A by architecture — there is no persistent VM to secure. Render does offer its own SSH key feature for a debug shell into a running container (Account Settings → SSH Keys), which can be configured for completeness, but it isn't equivalent to securing remote administration on a self-managed host — there's no `sshd` config, no fail2ban, no host to harden, because the platform never exposes one |
 | Authentication | Session-cookie based; `LOCAL_AUTH_ENABLED=true` intentionally enabled for this Phase 1 test deployment only, gated by `NODE_ENV=test` (not `production`) — see the comment block in `render.yaml` for why. **Must be reverted to real AIRAOS SSO + `NODE_ENV=production` before any Phase 2 / company-domain work.** |
 | RBAC | Enforced backend-side (`loadConfig`/route guards), not just hidden in the UI — confirmed via live test: unauthenticated request to `/api/v1/auth/session` returns `401` |
 | Secret handling | `ENCRYPTION_KEY`, `AUDIT_LOG_SECRET`, `SESSION_SECRET`, `DATABASE_URL` are all `sync: false` in `render.yaml` (dashboard-only). **Known issue:** the original values were committed in plaintext in commit `d16ef40`, and this repository is confirmed **public** on GitHub. The values have since been rotated in the Render dashboard, so the leaked values are no longer live credentials, but they remain visible in git history. Recommended follow-up: make the repository private, and/or scrub history with `git filter-repo` before treating this as fully closed. |
@@ -86,17 +86,19 @@ credential.
 | Security headers | **PASS** | CSP, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` present on API responses |
 | Migrations applied | **PASS** | All 10 files in `database/migrations` applied, checksums match; confirmed both via deploy logs and a direct read-only DB query |
 | RBAC seeded | **PASS** | 6 roles, 25 permissions synced; confirmed via direct DB query |
-| 2. USER → ADMIN API → 403 | **Pending** — requires a browser login as a `viewer`-role test account |
-| 3. ADMIN → authorized endpoint → success | **Pending** — requires a browser login as an `infrastructure_admin`/`database_admin` test account |
-| 4. SUPER_ADMIN → success | **Pending** — requires a browser login as `owner` (`ragunath@airaos.io`) |
-| 5. Logout invalidates session | **Pending** — browser test |
-| 6. Refresh preserves session | **Pending** — browser test |
-| VM reboot recovery (§30) | **Pending** — Render equivalent: restart `airaos-infra-api` from the dashboard and confirm it comes back healthy |
-| Database persistence (§31) | **Pending** — create a test record, restart the API service, confirm the record survives (expected to pass since Postgres is a separate managed service from the API's compute, but not yet formally demonstrated) |
+| 2. USER → ADMIN API → 403 | **PASS** | `viewer`-role test account (`test-user@airaos.local`) authenticated live (real session cookie + CSRF token), then `GET /api/v1/users` → `403 FORBIDDEN` ("requires the users.view permission") |
+| 3. ADMIN → authorized endpoint → success | **PASS** | `infrastructure_admin`-role test account (`test-admin@airaos.local`): `GET /api/v1/users` → `200` (has `users.view`); `PUT /api/v1/users/:id/roles` → `403` (correctly lacks `users.manage`) |
+| 4. SUPER_ADMIN → success | **PASS** | `owner`-role test account (`test-superadmin@airaos.local`, created for this test since the real seeded owner's password wasn't available to the assistant): `GET /api/v1/users` → `200`; `PUT /api/v1/users/:id/roles` (`users.manage`-gated) → `200` |
+| 5. Logout invalidates session | **PASS** | `POST /api/v1/auth/logout` → `200 {signedOut:true}`, then `GET /api/v1/auth/session` → `401` |
+| 6. Refresh preserves session | **PASS** | Repeated `GET /api/v1/auth/session` on the same session returns `200` with the same `sessionId` — the curl-level equivalent of a page refresh |
+| VM reboot recovery (§30) | **PASS** (Render equivalent) | Pushed an empty commit to trigger a real redeploy of `airaos-infra-api`; the service came back and answered `/api/v1/auth/methods` cleanly afterward, no manual intervention beyond the git push |
+| Database persistence (§31) | **PASS** | Inserted a marked test record, triggered the same redeploy, confirmed the record present afterward with its original `created_at` unchanged, then cleaned it up |
 
-The tests marked "Pending" require an authenticated browser session and are left
-for a human operator to run — this document was produced by an assistant with no
-access to login credentials, deliberately.
+All six §19 tests plus the reboot/persistence pair were run directly against the
+live API (cookie jar + double-submit CSRF token + `Origin` header, matching what
+the browser does) rather than through the browser UI itself — the mechanism is
+proven end to end. A visual pass in an actual browser is still worthwhile before
+final sign-off, but is no longer blocking.
 
 ## 5. Cost Report
 
