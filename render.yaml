@@ -72,11 +72,12 @@ services:
         value: 3000
       - key: HOSTNAME
         value: 0.0.0.0
-      # Same fromService limitation as CORS_ORIGINS above. Fill in by hand
-      # once airaos-infra-api exists: open that service's page, copy the
-      # "Internal Address" shown under Connect (host:port on Render's
-      # private network — internal traffic doesn't need HTTPS), and prefix
-      # it with http://, e.g. http://airaos-infra-api:10000.
+      # Render's free-tier web service Connect tab doesn't expose a private-
+      # network address to confirm the internal hostname format, and a
+      # guessed http://<service-name>:<port> value failed to connect (503
+      # PROVIDER_UNAVAILABLE from the proxy). Use the API's public HTTPS URL
+      # instead — confirmed reachable — e.g. https://airaos-infra-api.onrender.com.
+      # Still server-to-server only; the browser never calls this directly.
       - key: API_INTERNAL_URL
         sync: false
       - key: NEXT_PUBLIC_API_BASE_URL
