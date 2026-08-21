@@ -1,0 +1,24 @@
+name: Keep Render services warm
+
+# Render's free web services spin down after ~15 minutes idle; the first
+# request after that has been observed taking 60+ seconds to answer, during
+# which Render's edge can return a raw non-JSON 502. Pinging both services
+# well inside that 15-minute window keeps them from ever going idle, which is
+# the only way to avoid the cold start entirely on a $0 plan (no paid
+# "always-on" instance). Public repos get unlimited free Actions minutes, so
+# this costs nothing and needs no third-party account.
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping API
+        run: curl -sf --max-time 30 https://airaos-infra-api.onrender.com/api/v1/auth/methods > /dev/null
+
+      - name: Ping web
+        run: curl -sf --max-time 30 https://airaos-infra-web.onrender.com/ > /dev/null
