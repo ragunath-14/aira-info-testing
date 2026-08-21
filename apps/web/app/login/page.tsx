@@ -54,11 +54,12 @@ function LoginForm() {
 
   useEffect(() => {
     let cancelled = false;
-    // A free-tier API instance that spun down after idling can take several
-    // seconds to wake on the first request, during which Render's edge may
-    // answer with a raw 502 before the app itself is up. Retry transient
-    // failures a couple of times before showing the operator a dead end.
-    const MAX_ATTEMPTS = 3;
+    // A free-tier API instance that spun down after idling has been observed
+    // taking 60+ seconds to wake on the first request, during which Render's
+    // edge answers with a raw 502 before the app itself is up. Retry
+    // transient failures across that whole window before giving up.
+    const MAX_ATTEMPTS = 9;
+    const RETRY_DELAY_MS = 8000; // 8 * 8s ≈ 64s of retry budget
 
     const attempt = (count: number) => {
       api
@@ -74,7 +75,7 @@ function LoginForm() {
           const retryable = caught instanceof ApiClientError && caught.retryable;
           if (retryable && count < MAX_ATTEMPTS) {
             setWaking(true);
-            setTimeout(() => attempt(count + 1), 3000);
+            setTimeout(() => attempt(count + 1), RETRY_DELAY_MS);
             return;
           }
           setWaking(false);
@@ -135,8 +136,8 @@ function LoginForm() {
           {waking && !methods && !error ? (
             <p className="mb-4 flex items-center gap-2 rounded-md border border-border bg-surface-sunken px-3 py-2 text-xs text-muted-foreground">
               <Spinner className="h-3.5 w-3.5" />
-              Waking up the console API — this can take a moment on a free-tier
-              instance that&apos;s been idle.
+              Waking up the console API — a free-tier instance that&apos;s been
+              idle can take up to a minute to respond to its first request.
             </p>
           ) : null}
 

@@ -59,10 +59,14 @@ function makeQueryClient(): QueryClient {
           // each attempt is another audit line.
           if (error instanceof ApiClientError) {
             if (error.isAuthError || error.code === 'FORBIDDEN') return false;
-            return error.retryable && failureCount < 2;
+            // A retryable error here is usually a free-tier instance waking
+            // from idle, observed taking 60+ seconds — a couple of quick
+            // retries isn't enough budget to ride that out.
+            return error.retryable && failureCount < 8;
           }
           return failureCount < 1;
         },
+        retryDelay: (attemptIndex) => Math.min(8_000, 2_000 * (attemptIndex + 1)),
       },
       mutations: { retry: false },
     },
