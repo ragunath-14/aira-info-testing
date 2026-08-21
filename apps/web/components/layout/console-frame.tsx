@@ -16,16 +16,21 @@ import { Spinner } from '@/components/ui/primitives';
  */
 export function ConsoleFrame({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const { loading, unauthenticated, user } = useSession();
+  const { loading, user } = useSession();
   const isLoginRoute = pathname === '/login';
+  // Any settled session check with no user sends the operator to sign in —
+  // not just a clean 401. A cold-started API can bounce the first session
+  // check with a network/503 error rather than a real 401, and that should
+  // still land on /login instead of stranding the operator on a locked page.
+  const needsSignIn = !isLoginRoute && !loading && !user;
 
   useEffect(() => {
-    if (!isLoginRoute && unauthenticated) {
+    if (needsSignIn) {
       // Full navigation rather than router.push: it clears client caches that
       // may hold data from the expired session.
       window.location.href = `/login?next=${encodeURIComponent(pathname)}`;
     }
-  }, [isLoginRoute, unauthenticated, pathname]);
+  }, [needsSignIn, pathname]);
 
   if (isLoginRoute) {
     return <main id="main-content">{children}</main>;
@@ -42,7 +47,7 @@ export function ConsoleFrame({ children }: { children: ReactNode }) {
     );
   }
 
-  if (unauthenticated) {
+  if (needsSignIn) {
     return (
       <div className="flex h-dvh items-center justify-center">
         <p className="text-sm text-muted-foreground">Redirecting to sign in…</p>

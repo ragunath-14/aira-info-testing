@@ -12,28 +12,41 @@ services:
     buildCommand: npm install && npm run build:packages && npm run build -w @airaos/api
     startCommand: npm run migrate -w @airaos/api && npm run start -w @airaos/api
     envVars:
+      # NODE_ENV stays "test" (not "production") for this Phase 1 test
+      # deployment: loadConfig() hard-refuses to boot with
+      # LOCAL_AUTH_ENABLED=true when NODE_ENV=production unless a real
+      # AIRAOS SSO provider (AIRAOS_AUTH_URL/CLIENT_ID) is also configured.
+      # Switch to NODE_ENV=production + real SSO vars before any
+      # company-domain/production phase.
       - key: NODE_ENV
-        value: development
+        value: test
       - key: APP_ENV
-        value: development
+        value: production
       - key: API_PORT
         value: 10000
       - key: API_HOST
         value: 0.0.0.0
       - key: LOCAL_AUTH_ENABLED
         value: "true"
+      # Overrides the seed script's weak default (airaos-dev-password) for
+      # the auto-created local operator. Set both in the Render dashboard.
+      - key: SEED_ADMIN_EMAIL
+        sync: false
+      - key: SEED_ADMIN_PASSWORD
+        sync: false
       - key: DATABASE_URL
         fromDatabase:
           name: airaos-console-db
           property: connectionString
       - key: DATABASE_SSL
         value: "true"
+      # Secrets are entered directly in the Render dashboard, never committed here.
       - key: ENCRYPTION_KEY
-        value: tlMAeGvGajNC9LPXsHMMPeZEUpVAVTzTScn+hiQGU9I=
+        sync: false
       - key: AUDIT_LOG_SECRET
-        value: RqIK+oHnWKXMHKPhJphI4CxbqHh8F/dJ41AvHe58vrk=
+        sync: false
       - key: SESSION_SECRET
-        value: 1DuGsuPyQRNN8bvQ5srPBSZxEeJe04CzFJaBDrttzA4JbB6dlYTULJJ/WksHyXXx
+        sync: false
       - key: CORS_ORIGINS
         fromService:
           type: web
@@ -46,11 +59,15 @@ services:
     env: node
     plan: free
     region: singapore
-    buildCommand: npm install && npm run build:packages && npm run build -w @airaos/web
-    startCommand: npm run start -w @airaos/web
+    buildCommand: npm install && npm run build:packages && npm run build -w @airaos/web && cp -r apps/web/.next/static apps/web/.next/standalone/apps/web/.next/static && cp -r apps/web/public apps/web/.next/standalone/apps/web/public
+    startCommand: node apps/web/.next/standalone/apps/web/server.js
     envVars:
       - key: NODE_ENV
         value: production
+      - key: PORT
+        value: 3000
+      - key: HOSTNAME
+        value: 0.0.0.0
       - key: API_INTERNAL_URL
         fromService:
           type: web
@@ -61,6 +78,9 @@ services:
 
 databases:
   # ----------------------------------------------------------- PostgreSQL Database
+  # Render free Postgres: not deleted on a schedule, but Render suspends
+  # (not deletes) a free instance after 90 days of inactivity — resume it
+  # from the dashboard if that happens. Still $0.
   - name: airaos-console-db
     databaseName: airaos_console
     user: airaos
